@@ -123,7 +123,7 @@ No game engine, no 3D library, no image files for the scene, no audio files.
 - Every sound is synthesized live with the Web Audio API.
 - [`gregg.js`](gregg.js) draws the egg and Gregg. [`app.js`](app.js) runs the field, the petting, the talking and the sounds.
 
-Built with Claude Opus 5.5.
+Built with Claude Code (Claude Opus 5.5).
 
 ## Run it locally
 
@@ -133,6 +133,11 @@ cd touch-gregg
 python3 -m http.server 8000
 # open http://localhost:8000
 ```
+
+## Credits
+
+- **[@MyWestLord](https://github.com/MyWestLord)**: idea, direction, Gregg's number one fan
+- **Claude Code** (Claude Opus 5.5): code, art, sounds, stickers, memes and the launch video
 
 ## Disclaimer
 
