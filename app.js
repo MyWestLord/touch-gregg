@@ -100,7 +100,7 @@
     if (tg && Math.hypot((x - tg.x) / tg.rx, (y - tg.y) / tg.ry) < 1) {
       const dist = Math.min(Math.hypot(dx, dy), tg.rx * 0.6);
       petAcc += dist * (down || touch ? 1 : 0.75);
-      const need = tg.rx * 1.4;
+      const need = tg.rx * (REC ? 0.9 : 1.4);
       while (petAcc >= need) { petAcc -= need; pet(Math.sign(dx) || 1); }
     }
   }
@@ -124,15 +124,18 @@
   function pet(dir) {
     if (S.phase === 'egg') {
       S.eggPets++; wigV += dir * 2.4; log('pat'); sfx.pat();
+      if (S.eggPets % 4 === 2 && !CRACKS.includes(S.eggPets)) say(pickLine(EGG_LINES));
       spawnHearts(1 + (Math.random() < 0.35 ? 1 : 0));
-      if (CRACKS.includes(S.eggPets)) { shake = 1; log('crack', { n: CRACKS.indexOf(S.eggPets) + 1 }); sfx.crack(); for (let i = 0; i < 10; i++) spawnSpark(L.cx + R2(-1, 1) * L.U * 0.6, L.ground - EGG_RY * L.U * R2(0.7, 1.4), '#FFF2C8'); }
+      if (CRACKS.includes(S.eggPets)) { say(['who\'s there?', 'it\'s getting crowded in here', 'LET ME OUT'][CRACKS.indexOf(S.eggPets)], 1.8, true);
+        shake = 1; log('crack', { n: CRACKS.indexOf(S.eggPets) + 1 }); sfx.crack(); for (let i = 0; i < 10; i++) spawnSpark(L.cx + R2(-1, 1) * L.U * 0.6, L.ground - EGG_RY * L.U * R2(0.7, 1.4), '#FFF2C8'); }
       if (S.eggPets >= HATCH) startHatch();
     } else if (S.phase === 'gregg') {
-      S.greggPets++; love = 1; squishV -= 2.2; log('purr'); sfx.pet();
+      S.greggPets++; love = 1; squishV -= 2.2; log('purr'); sfx.pet(); lastPet = S.t; idleSaid = false;
+      if (S.greggPets % 5 === 1) say(pickLine(GREGG_LINES));
       spawnHearts(1 + (Math.random() < 0.5 ? 1 : 0));
       if (S.greggPets % 4 === 0) { log('chirp'); sfx.chirp(); }
-      if (S.greggPets % 12 === 0 && S.t - S.legsT > 3.6) { S.legsT = S.t; log('boing'); sfx.boing(); }
-      if (S.greggPets >= 40 && !S.glasses) { S.glasses = true; S.glassT = S.t; log('glasses'); setTimeout(() => sfx.drop(), REC ? 0 : 520); }
+      if (S.greggPets % 12 === 0 && S.t - S.legsT > 3.6) { S.legsT = S.t; log('boing'); sfx.boing(); say(pick(['LEGS.', 'skip leg day? never', 'i have legs now. deal with it']), 2.2, true); }
+      if (S.greggPets >= 40 && !S.glasses) { S.glasses = true; S.glassT = S.t; log('glasses'); setTimeout(() => say('deal with it', 2.4, true), REC ? 0 : 600); setTimeout(() => sfx.drop(), REC ? 0 : 520); }
     }
     updateUI(); save();
   }
@@ -147,7 +150,7 @@
     updateUI(); save();
   }
   function newEgg() { S.phase = 'egg'; S.eggPets = 0; S.greggPets = 0; S.glasses = false; S.legsT = -99; crackShown = 0; shards.length = 0; confetti.length = 0; log('newegg'); sfx.click(); updateUI(); save(); }
-  function setMode(m) { if (m === S.mode || !PAL[m]) return; S.from = curModeBlend(); S.mode = m; S.mt = 0; log('mode', { m }); sfx.click(); updateUI(); save(); }
+  function setMode(m) { if (m === S.mode || !PAL[m]) return; S.from = curModeBlend(); S.mode = m; S.mt = 0; log('mode', { m }); if (S.phase === 'gregg') say({ morning: 'good morning!!', golden: 'golden hour, golden egg', night: 'it\'s dark. pet me for courage' }[m], 1.9, true); sfx.click(); updateUI(); save(); }
   let blendCache = null;
   function curModeBlend() { return blendCache; }
   function greggExt() { const u = S.t - S.legsT; if (u < 0 || u > 3.4) return 0; if (u < 3.0) return 1.25 * (1 - Math.exp(-10 * u) * Math.cos(16 * u)); return 1.25 * (1 - smooth(3.0, 3.4, u)); }
@@ -289,7 +292,7 @@
     // look at hand
     const tg = target() || { x: L.cx, y: L.ground - U };
     const hx = hand.seen ? clamp((hand.x - x) / (W * 0.35), -1, 1) : 0, hy = hand.seen ? clamp((hand.y - (y - 1.1 * U)) / (H * 0.35), -1, 1) : 0;
-    lookX = lerp(lookX, hx, 0.15); lookY = lerp(lookY, hy, 0.15);
+    if (!forcePose) { lookX = lerp(lookX, hx, 0.15); lookY = lerp(lookY, hy, 0.15); }
     p.lookX = lookX; p.lookY = lookY; p.yaw = lookX * 0.22 * (1 - love);
     p.sy -= squish; p.blush = 0.7 + 0.3 * love;
     if (love > 0.15 && S.phase === 'gregg') { p.expr = 'love'; p.lean = clamp(hand.vx * 0.004, -0.12, 0.12); p.raiseL = p.raiseR = 0.25 * love; }
@@ -299,6 +302,10 @@
     // legs
     const ext = greggExt(); if (ext > 0.001) { p.ext = ext; const lu = S.t - S.legsT; p.dance = lu * 2.1; p.danceAmt = smooth(0.4, 0.8, lu) * (1 - smooth(2.7, 3.0, lu)); p.raiseL = 0.55 + 0.4 * Math.sin(lu * 13); p.raiseR = 0.55 - 0.4 * Math.sin(lu * 13); p.expr = 'grin'; p.lift = 0.08 * Math.abs(Math.sin(lu * TAU * 1.05)) * p.danceAmt; p.yaw = 0.15 * Math.sin(lu * 6.6) * p.danceAmt; }
     if (S.glasses) { const gu = S.t - S.glassT; p.glass = gu < 0.5 ? -3.0 * (1 - Math.pow(gu / 0.5, 2)) : -0.06 * Math.exp(-9 * (gu - 0.5)) * Math.abs(Math.sin((gu - 0.5) * 18)); if (gu > 0.5 && p.expr !== 'love' && p.expr !== 'grin') p.expr = 'cool'; }
+    if (forcePose === 'shock') { p.expr = 'shock'; p.brows = 1; p.raiseL = p.raiseR = 0.9; }
+    if (forcePose === 'wave') { p.wave = 1; p.waveT = 0.12; p.expr = 'happy'; }
+    if (forcePose === 'love') { p.expr = 'love'; p.blush = 1; p.raiseL = p.raiseR = 0.25; }
+    if (forcePose && forcePose !== 'legs' && forcePose !== 'cool') p.blink = 1;
     return { p, x, y };
   }
   function drawActors(P) {
@@ -315,7 +322,7 @@
     else { const u = S.t - S.hatchT; sy = 1 - 0.12 * Math.exp(-9 * u) * Math.cos(22 * u); sx = 1 + 0.06 * Math.exp(-9 * u) * Math.cos(22 * u); }
     ctx.scale(sx, sy); ctx.translate(0, -EGG_RY);
     const glow = S.phase === 'egg' ? smooth(16, 24, S.eggPets) * (0.75 + 0.25 * Math.sin(S.t * 8)) : 0;
-    if (S.phase === 'egg') drawEggPiece('full', wobble * 0.6, crackShown, glow); else drawEggPiece('bottom', 0, 0, 0);
+    if (S.phase === 'egg') drawEggPiece('full', wobble * 0.6, crackShown, glow); else if (!noCup) drawEggPiece('bottom', 0, 0, 0);
     ctx.restore();
     // gregg
     if (S.phase !== 'egg') {
@@ -365,13 +372,16 @@
     love = Math.max(0, love - dt * 0.9); shake = Math.max(0, shake - dt * 2.5);
     const target = [0, 0.32, 0.64, 1][CRACKS.filter(c => S.eggPets >= c).length];
     crackShown = lerp(crackShown, target, 1 - Math.exp(-dt * 6));
-    if (S.phase === 'hatching' && S.t - S.hatchT > 1.15) { S.phase = 'gregg'; log('ding'); sfx.chirp(); for (let i = 0; i < 9; i++) spawnSpark(L.cx + R2(-0.6, 0.6) * L.U, L.ground - 1.9 * L.U + R2(-0.3, 0.3) * L.U, '#FFF3C8', 200); updateUI(); save(); }
+    if (S.phase === 'hatching' && S.t - S.hatchT > 1.15) { S.phase = 'gregg'; log('ding'); sfx.chirp(); say('hi! i\'m Gregg', 2.0, true); setTimeout(() => say('two g\'s. because egg.', 2.2, true), REC ? 0 : 2300); lastPet = S.t; if (!REC && !SHOT) document.title = 'Touch Gregg 🐣'; for (let i = 0; i < 9; i++) spawnSpark(L.cx + R2(-0.6, 0.6) * L.U, L.ground - 1.9 * L.U + R2(-0.3, 0.3) * L.U, '#FFF3C8', 200); updateUI(); save(); }
     for (const h of hearts) { h.age += dt; h.x += h.vx * dt; h.y += h.vy * dt; h.vy *= 1 - dt * 0.6; }
     for (const s of sparks) { s.age += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= 1 - dt * 2.5; s.vy = s.vy * (1 - dt * 2.5) + 60 * dt; }
     for (const c of confetti) { c.age += dt; c.vx *= 1 - dt * 1.6; c.vy = c.vy * (1 - dt * 1.6) + 1400 * (H / 1080) * dt; c.x += c.vx * dt; c.y += c.vy * dt; c.rot += c.vr * dt; }
     for (const s of shards) { if (s.landed) continue; s.vy += 2200 * (H / 1080) * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.rot += s.vr * dt; if (s.y > s.gy && s.vy > 0) { s.y = s.gy; s.landed = true; } }
     for (const arr of [hearts, sparks, confetti]) for (let i = arr.length - 1; i >= 0; i--) if (arr[i].age > arr[i].life) arr.splice(i, 1);
     if (Math.random() < dt * 3 && S.phase === 'egg' && S.eggPets >= 18) spawnSpark(L.cx + R2(-0.7, 0.7) * L.U, L.ground - R2(0.3, 1.9) * L.U, '#FFF6DA', 40);
+    if (S.phase === 'gregg' && !idleSaid && S.t - lastPet > 9 && !REC && !SHOT) { idleSaid = true; say(pick(['psst… pet me?', 'hello? i can see your cursor', 'i\'m right here btw'])); }
+    if (S.phase === 'egg' && S.eggPets === 0 && !idleSaid && S.t > 6 && !REC && !SHOT) { idleSaid = true; say('…pet me?'); }
+    bubbleT -= dt; if (bubbleEl && bubbleT <= 0 && bubbleEl.classList.contains('show')) bubbleEl.classList.remove('show');
     hand.press = lerp(hand.press, hand.down ? 1 : 0, 1 - Math.exp(-dt * 14));
     hand.ang = lerp(hand.ang, clamp(hand.vx * 0.6, -18, 18), 1 - Math.exp(-dt * 10)); hand.vx *= Math.exp(-dt * 8);
   }
@@ -380,6 +390,7 @@
     const P = S.mt >= 1 ? PAL[S.mode] : mixPal(from, PAL[S.mode], eio(S.mt));
     blendCache = P;
     ctx = mctx; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if (bgNone) { ctx.clearRect(0, 0, W, H); drawActors(P); return; }
     ctx.save();
     if (shake > 0) ctx.translate(Math.sin(S.t * 71) * shake * 6, Math.cos(S.t * 57) * shake * 5);
     drawSky(P); drawLand(P);
@@ -392,12 +403,54 @@
     drawFX();
     ctx.restore();
     const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.8); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.22)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    placeBubble();
     // hand cursor
     const he = document.getElementById('hand');
     if (he) { const vis = hand.seen && hand.x > -100 && (!hand.touch || hand.down || S.t - hand.lastMove < 0.6); he.style.opacity = vis ? 1 : 0; he.style.transform = `translate(${hand.x - 22}px, ${hand.y - 26}px) rotate(${hand.ang}deg) scale(${1 - 0.12 * hand.press}, ${1 - 0.18 * hand.press})`; }
   }
   function tick(dt) { update(dt); render(); }
-  window.__rec = { move: (x, y, down) => onMove(x, y, down, false), step: tick, mode: setMode, newEgg, state: () => ({ phase: S.phase, eggPets: S.eggPets, greggPets: S.greggPets, t: S.t }), events: () => EV };
+  // ---------------- Gregg talks ----------------
+  const EGG_LINES = ['hehe', 'warm!', '5 more minutes', 'who pets an egg??', 'keep going', 'i felt that', 'almost done compiling', 'loading personality…'];
+  const GREGG_LINES = ['again!', 'that\'s the spot', 'more pets pls', 'i\'m the Claude Code mascot now', '(unofficially)', 'ship it', 'LGTM', 'no omelette jokes', 'touch Gregg, not grass', 'compiling happiness…', '0 bugs, only pets', '100% pet coverage', 'rebasing my feelings', 'it works on my egg', 'shell yeah', 'i run on vibes and pets', 'please don\'t scramble me', 'yolk\'s on you'];
+  let lastLine = '', bubbleT = 0, lastPet = 0, idleSaid = false;
+  const bubbleEl = document.getElementById('bubble');
+  function pickLine(arr) { let l; do { l = pick(arr); } while (l === lastLine && arr.length > 1); return l; }
+  function say(text, dur = 1.6, force = false) {
+    if (!bubbleEl || SHOT) return; if (!force && bubbleT > 0.4) return;
+    lastLine = text; bubbleT = dur; bubbleEl.textContent = text; log('say', { text });
+    bubbleEl.classList.remove('show'); void bubbleEl.offsetWidth; bubbleEl.classList.add('show');
+  }
+  function placeBubble() {
+    if (!bubbleEl) return;
+    let x = L.cx, y = L.ground - EGG_RY * 2 * L.U - 18;
+    if (S.phase !== 'egg') { const g = greggState(); x = g.x; y = g.y - (2.02 + g.p.ext + g.p.lift) * L.U - 10; }
+    bubbleEl.style.left = x + 'px'; bubbleEl.style.top = Math.max(70, y) + 'px';
+  }
+  // keyboard secrets
+  let typed = '';
+  if (!REC && !SHOT) window.addEventListener('keydown', e => {
+    if (e.key.length !== 1) return; typed = (typed + e.key.toLowerCase()).slice(-8); audioOn();
+    if (typed.endsWith('gregg')) { say('that\'s me!', 1.6, true); sfx.chirp(); if (S.phase === 'gregg') { love = 1; squishV -= 3; } }
+    else if (typed.endsWith('legs') && S.phase === 'gregg' && S.t - S.legsT > 3.6) { S.legsT = S.t; sfx.boing(); say('you found the legs', 2, true); }
+    else if (typed.endsWith('cool') && S.phase === 'gregg') { S.glasses = !S.glasses; S.glassT = S.t; if (S.glasses) { sfx.drop(); say('deal with it', 2, true); } save(); }
+  });
+  if (!REC && !SHOT) console.log('%c\n   .-""-.\n  /  o o \\     hi, i\'m Gregg.\n |   \\_/  |    two g\'s, because egg.\n  \\  ___ /     try typing: gregg, legs, cool\n   `-----`\n', 'color:#F07A35;font:bold 13px monospace');
+
+  // ---------------- creatives renderer ----------------
+  let forcePose = null, bgNone = false, noCup = false;
+  window.__shot = o => {
+    bgNone = o.mode === 'none'; noCup = !!o.noCup; forcePose = o.pose || 'happy';
+    S.mode = S.from = bgNone ? 'morning' : o.mode; S.mt = 1; if (o.t !== undefined) S.t = o.t;
+    L.cx = o.gx * W; L.ground = o.gy * H; L.U = o.gu * H; if (!o.keep) build();
+    S.phase = o.pose === 'egg' || o.pose === 'eggcrack' ? 'egg' : 'gregg'; S.hatchT = -99;
+    S.eggPets = o.pose === 'eggcrack' ? 19 : 0; crackShown = o.pose === 'eggcrack' ? 0.64 : 0;
+    S.glasses = o.pose === 'cool'; S.glassT = -99; S.legsT = o.pose === 'legs' ? S.t - (o.legsU || 1.25) : -99;
+    love = o.pose === 'love' ? 1 : 0; squish = 0; wig = 0; blinkNext = 1e9; blinkT = -9;
+    hand.seen = false; trail.length = 0; lookX = o.lookX || 0; lookY = o.lookY || 0;
+    shards.length = 0; confetti.length = 0; hearts.length = 0; sparks.length = 0;
+    render(); return true;
+  };
+  window.__rec = { glasses: () => { S.glasses = true; S.glassT = S.t; log('glasses'); say('deal with it', 2.4, true); }, move: (x, y, down) => onMove(x, y, down, false), step: tick, mode: setMode, newEgg, state: () => ({ phase: S.phase, eggPets: S.eggPets, greggPets: S.greggPets, t: S.t }), events: () => EV };
 
   layout(); updateUI();
   if (SHOT) {
