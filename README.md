@@ -47,7 +47,8 @@ He wears his own shell as a hat. He applied to be the Claude Code mascot and nev
 - **Pet the egg.** Move the tiny hand over it. Three cracks, then a hatch.
 - **Brush the grass.** It parts under your hand and slowly springs back.
 - **Change the time of day.** Morning, Golden and Night. Night has fireflies.
-- **Listen to Gregg.** He talks. Mostly about pets. Sometimes about shipping.
+- **Turn the sound on.** A cozy soundtrack plays, every pet is a note, the grass rustles under your hand and Gregg purrs.
+- **Listen to Gregg.** He talks (and babbles). Mostly about pets. Sometimes about shipping.
 - **Share your Gregg.** There's a button for that once he hatches.
 
 <details>

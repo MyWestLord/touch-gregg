@@ -35,9 +35,9 @@
   const KEY = 'touch-gregg-v1';
   const hour = new Date().getHours();
   S.mode = S.from = hour >= 5 && hour < 12 ? 'morning' : hour >= 12 && hour < 20 ? 'golden' : 'night';
-  if (!REC && !SHOT) { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) { S.eggPets = s.eggPets | 0; S.greggPets = s.greggPets | 0; S.muted = !!s.muted; S.glasses = !!s.glasses; if (s.phase === 'gregg') S.phase = 'gregg'; } } catch (e) { } }
+  if (!REC && !SHOT) { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) { S.eggPets = s.eggPets | 0; S.greggPets = s.greggPets | 0; S.muted = !!s.muted; S.musicOff = !!s.musicOff; S.glasses = !!s.glasses; if (s.phase === 'gregg') S.phase = 'gregg'; } } catch (e) { } }
   if (Q.get('mode') && PAL[Q.get('mode')]) S.mode = S.from = Q.get('mode');
-  function save() { if (REC || SHOT) return; try { localStorage.setItem(KEY, JSON.stringify({ phase: S.phase === 'egg' ? 'egg' : 'gregg', eggPets: S.eggPets, greggPets: S.greggPets, muted: S.muted, glasses: S.glasses })); } catch (e) { } }
+  function save() { if (REC || SHOT) return; try { localStorage.setItem(KEY, JSON.stringify({ phase: S.phase === 'egg' ? 'egg' : 'gregg', eggPets: S.eggPets, greggPets: S.greggPets, muted: S.muted, musicOff: !!S.musicOff, glasses: S.glasses })); } catch (e) { } }
   const EV = []; window.__events = EV;
   const log = (type, extra) => EV.push(Object.assign({ t: +S.t.toFixed(3), type }, extra || {}));
 
@@ -93,6 +93,7 @@
     const dx = x - hand.x, dy = y - hand.y;
     if (!hand.seen) { hand.x = x; hand.y = y; hand.seen = true; return; }
     hand.vx = lerp(hand.vx, dx, 0.5); hand.x = x; hand.y = y; hand.down = down; hand.touch = touch; hand.lastMove = S.t;
+    if (y > crest(x)) rustle = Math.min(1, rustle + Math.hypot(dx, dy) / (H * 0.06));
     const lt = trail[trail.length - 1];
     if (!lt || Math.hypot(x - lt.x, y - lt.y) > 10) { trail.push({ x, y, t: S.t }); if (trail.length > 26) trail.shift(); }
     // petting
@@ -150,26 +151,83 @@
     updateUI(); save();
   }
   function newEgg() { S.phase = 'egg'; S.eggPets = 0; S.greggPets = 0; S.glasses = false; S.legsT = -99; crackShown = 0; shards.length = 0; confetti.length = 0; log('newegg'); sfx.click(); updateUI(); save(); }
-  function setMode(m) { if (m === S.mode || !PAL[m]) return; S.from = curModeBlend(); S.mode = m; S.mt = 0; log('mode', { m }); if (S.phase === 'gregg') say({ morning: 'good morning!!', golden: 'golden hour, golden egg', night: 'it\'s dark. pet me for courage' }[m], 1.9, true); sfx.click(); updateUI(); save(); }
+  function setMode(m) { if (m === S.mode || !PAL[m]) return; S.from = curModeBlend(); S.mode = m; S.mt = 0; log('mode', { m }); sfx.whoosh(); if (S.phase === 'gregg') say({ morning: 'good morning!!', golden: 'golden hour, golden egg', night: 'it\'s dark. pet me for courage' }[m], 1.9, true); sfx.click(); updateUI(); save(); }
   let blendCache = null;
   function curModeBlend() { return blendCache; }
   function greggExt() { const u = S.t - S.legsT; if (u < 0 || u > 3.4) return 0; if (u < 3.0) return 1.25 * (1 - Math.exp(-10 * u) * Math.cos(16 * u)); return 1.25 * (1 - smooth(3.0, 3.4, u)); }
 
   // ---------------- audio ----------------
-  let AC = null, MG = null, purrG = null;
-  function audioOn() { if (REC || SHOT) return; try { if (!AC) { AC = new (window.AudioContext || window.webkitAudioContext)(); MG = AC.createGain(); MG.gain.value = S.muted ? 0 : 0.7; MG.connect(AC.destination); } if (AC.state === 'suspended') AC.resume(); } catch (e) { } }
-  function env(g, t0, a, peak, d) { g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + a); g.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d); }
-  function tone(type, f0, f1, dur, vol, delay = 0) { if (!AC || S.muted) return; const t0 = AC.currentTime + delay; const o = AC.createOscillator(), g = AC.createGain(); o.type = type; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur); env(g, t0, 0.008, vol, dur); o.connect(g); g.connect(MG); o.start(t0); o.stop(t0 + dur + 0.05); }
-  function noise(dur, vol, freq, q = 1, delay = 0) { if (!AC || S.muted) return; const t0 = AC.currentTime + delay; const n = Math.floor(AC.sampleRate * dur); const b = AC.createBuffer(1, n, AC.sampleRate); const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; const s = AC.createBufferSource(); s.buffer = b; const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q; const g = AC.createGain(); env(g, t0, 0.004, vol, dur); s.connect(f); f.connect(g); g.connect(MG); s.start(t0); }
+  // Everything is synthesized live: music, petting notes, grass rustle, purring, Gregg's babble, birds and crickets.
+  let AC = null, MG = null, SFX = null, MUS = null, AMB = null, rustleG = null, purrG = null, noiseBuf = null, musicOn = false, started = false;
+  const SCALE = [0, 2, 4, 7, 9];
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  function audioOn() {
+    if (REC || SHOT) return;
+    try {
+      if (!AC) {
+        AC = new (window.AudioContext || window.webkitAudioContext)();
+        const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3; comp.connect(AC.destination);
+        MG = AC.createGain(); MG.gain.value = S.muted ? 0 : 0.9; MG.connect(comp);
+        SFX = AC.createGain(); SFX.connect(MG);
+        MUS = AC.createGain(); MUS.gain.value = 0; MUS.connect(MG);
+        AMB = AC.createGain(); AMB.gain.value = 0.55; AMB.connect(MG);
+        noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const rs = AC.createBufferSource(); rs.buffer = noiseBuf; rs.loop = true; const rf = AC.createBiquadFilter(); rf.type = 'bandpass'; rf.frequency.value = 2600; rf.Q.value = 0.6; rustleG = AC.createGain(); rustleG.gain.value = 0; rs.connect(rf); rf.connect(rustleG); rustleG.connect(SFX); rs.start();
+        const po = AC.createOscillator(); po.type = 'sawtooth'; po.frequency.value = 58; const pf = AC.createBiquadFilter(); pf.type = 'lowpass'; pf.frequency.value = 300; const trem = AC.createGain(); trem.gain.value = 0; const lfo = AC.createOscillator(); lfo.frequency.value = 24; const lg = AC.createGain(); lg.gain.value = 0.6; lfo.connect(lg); lg.connect(trem.gain); purrG = AC.createGain(); purrG.gain.value = 0; po.connect(pf); pf.connect(trem); trem.connect(purrG); purrG.connect(SFX); po.start(); lfo.start();
+        document.addEventListener('visibilitychange', () => { if (!AC) return; if (document.hidden) AC.suspend(); else AC.resume(); });
+      }
+      if (AC.state === 'suspended') AC.resume();
+      startMusic();
+    } catch (e) { }
+  }
+  function nz(t, d, v, type, freq, q, dest) { const s = AC.createBufferSource(); s.buffer = noiseBuf; const f = AC.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q; const g = AC.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d); s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random() * 1.5); s.stop(t + d + 0.02); }
+  function osc(type, f0, f1, t, d, v, dest, a = 0.008) { const o = AC.createOscillator(), g = AC.createGain(); o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + d); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g); g.connect(dest); o.start(t); o.stop(t + d + 0.05); }
+  function pluck(f, t, v, dest = SFX, d = 0.5) { osc('sine', f, f, t, d, v, dest, 0.004); osc('triangle', f * 2, f * 2, t, d * 0.5, v * 0.25, dest, 0.004); }
+  function bell(f, t, v, dest = MUS) { osc('sine', f, f, t, 0.9, v, dest, 0.004); osc('sine', f * 2.76, f * 2.76, t, 0.35, v * 0.25, dest, 0.003); }
+  // --- music: cozy loop, 88 bpm, Fmaj7 / Em7 / Dm7 / Cmaj7 ---
+  const SPB = 60 / 88;
+  const PROG = [[53, [65, 69, 72, 76]], [52, [64, 67, 71, 74]], [50, [62, 65, 69, 72]], [48, [60, 64, 67, 71]]];
+  const MEL = [[81, null, 79, 76, null, 77, 76, 72], [79, null, 76, 74, null, 76, 74, 71], [77, null, 76, 72, null, 74, 72, 69], [76, 74, 72, null, 71, null, 72, null]];
+  let nextT = 0, step = 0, ambNext = 0;
+  function keys(f, t, d, v) { const o = AC.createOscillator(), o2 = AC.createOscillator(), g = AC.createGain(), g2 = AC.createGain(), lp = AC.createBiquadFilter(); o.frequency.value = f; o2.type = 'triangle'; o2.frequency.value = f * 2.003; g2.gain.value = 0.16; lp.type = 'lowpass'; lp.frequency.value = 1700; o.connect(lp); o2.connect(g2); g2.connect(lp); lp.connect(g); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.025); g.gain.exponentialRampToValueAtTime(0.0001, t + d); g.connect(MUS); o.start(t); o2.start(t); o.stop(t + d + 0.05); o2.stop(t + d + 0.05); }
+  function playStep(s, t) {
+    const bar = Math.floor(s / 8) % 4, e = s % 8, loop = Math.floor(s / 32), [root, ch] = PROG[bar], night = S.mode === 'night';
+    if (e === 0) { ch.forEach((n, i) => keys(mtof(n), t + i * 0.016, 2.6, 0.045)); osc('triangle', mtof(root - 12), mtof(root - 12), t, 1.3, 0.2, MUS, 0.01); }
+    if (e === 5) ch.forEach((n, i) => keys(mtof(n), t + i * 0.012, 1.3, 0.028));
+    if (e === 3 || e === 6) osc('triangle', mtof(root - 12 + (e === 6 ? 7 : 0)), mtof(root - 12 + (e === 6 ? 7 : 0)), t, 0.6, 0.12, MUS, 0.01);
+    if (!night && loop > 0) { if (e === 0 || e === 5) osc('sine', 120, 44, t, 0.28, 0.45, MUS, 0.002); if (e === 2 || e === 6) nz(t, 0.11, 0.1, 'bandpass', 1900, 0.8, MUS); }
+    nz(t, 0.05, e % 2 ? 0.045 : 0.025, 'highpass', 7200, 0.7, MUS);
+    if (loop % 2 === 1) { const n = MEL[bar][e]; if (n) bell(mtof(n - (night ? 12 : 0)), t, 0.045); }
+  }
+  function cricket(t) { osc('sine', 4400, 4400, t, 0.03, 0.03, AMB, 0.004); }
+  function tweet(t) { const n = 2 + (Math.random() * 3 | 0), f0 = R2(2600, 4200); for (let j = 0; j < n; j++) osc('sine', f0, f0 * R2(1.15, 1.5), t + j * 0.09, 0.07, 0.03, AMB, 0.006); }
+  function sched() {
+    if (!AC || AC.state !== 'running') return;
+    while (nextT < AC.currentTime + 0.15) { playStep(step, nextT); nextT += SPB / 2; step++; }
+    if (AC.currentTime > ambNext) {
+      if (S.mode === 'night') { for (let j = 0; j < 3; j++) cricket(AC.currentTime + 0.05 + j * 0.045); ambNext = AC.currentTime + R2(0.3, 0.7); }
+      else { tweet(AC.currentTime + 0.05); ambNext = AC.currentTime + (S.mode === 'morning' ? R2(0.9, 2.6) : R2(2.5, 5.5)); }
+    }
+  }
+  function startMusic() { if (musicOn || !AC) return; musicOn = true; nextT = AC.currentTime + 0.15; step = 0; MUS.gain.setValueAtTime(0.0001, AC.currentTime); MUS.gain.exponentialRampToValueAtTime(S.musicOff ? 0.0001 : 0.6, AC.currentTime + 2.5); setInterval(sched, 30); }
+  function audioFrame(dt) {
+    if (!AC) return;
+    const now = AC.currentTime;
+    rustleG.gain.setTargetAtTime(S.muted ? 0 : 0.16 * rustle, now, 0.06);
+    purrG.gain.setTargetAtTime(S.muted || S.phase !== 'gregg' ? 0 : 0.11 * love, now, 0.08);
+  }
+  let rustle = 0;
   const sfx = {
-    pat() { noise(0.09, 0.22, 900, 0.8); tone('sine', 260, 170, 0.08, 0.12); },
-    pet() { noise(0.08, 0.16, 1200, 0.9); tone('sine', 330, 220, 0.09, 0.08); },
-    crack() { for (let i = 0; i < 8; i++) noise(0.02, 0.5, 3200, 2, i * 0.018 + Math.random() * 0.01); tone('triangle', 900, 500, 0.12, 0.06); },
-    pop() { tone('sine', 140, 40, 0.9, 0.9); noise(0.5, 0.35, 600, 0.5); [84, 88, 91, 96, 100].forEach((m, i) => tone('sine', 440 * Math.pow(2, (m - 69) / 12), 440 * Math.pow(2, (m - 69) / 12), 0.7, 0.12, 0.05 + i * 0.06)); },
-    chirp() { const f = R2(820, 1100); tone('sine', f, f * 1.6, 0.16, 0.12); },
-    boing() { if (!AC || S.muted) return; const t0 = AC.currentTime; const o = AC.createOscillator(), g = AC.createGain(), l = AC.createOscillator(), lg = AC.createGain(); o.frequency.setValueAtTime(180, t0); o.frequency.exponentialRampToValueAtTime(700, t0 + 0.6); l.frequency.value = 22; lg.gain.setValueAtTime(120, t0); lg.gain.exponentialRampToValueAtTime(1, t0 + 0.7); l.connect(lg); lg.connect(o.frequency); env(g, t0, 0.01, 0.35, 0.7); o.connect(g); g.connect(MG); o.start(t0); l.start(t0); o.stop(t0 + 0.8); l.stop(t0 + 0.8); },
-    drop() { tone('sine', 1500, 420, 0.5, 0.1); tone('sine', 110, 45, 1.2, 0.8, 0.5); noise(1.0, 0.18, 6000, 0.4, 0.5); },
-    click() { tone('triangle', 1400, 1100, 0.05, 0.07); },
+    pat() { if (!AC || S.muted) return; const t = AC.currentTime, i = S.eggPets; pluck(mtof(65 + SCALE[i % 5] + 12 * (Math.floor(i / 5) % 3)), t, 0.16); nz(t, 0.08, 0.06, 'bandpass', 900, 0.8, SFX); },
+    pet() { if (!AC || S.muted) return; const t = AC.currentTime; pluck(mtof(72 + SCALE[(Math.random() * 5) | 0] + (Math.random() < 0.35 ? 12 : 0)), t, 0.13); nz(t, 0.07, 0.05, 'bandpass', 1200, 0.9, SFX); },
+    crack() { if (!AC || S.muted) return; const t = AC.currentTime; for (let i = 0; i < 9; i++) nz(t + i * 0.017 + Math.random() * 0.01, 0.02, 0.5, 'bandpass', 3200, 2, SFX); bell(mtof(96), t + 0.05, 0.08, SFX); },
+    pop() { if (!AC || S.muted) return; const t = AC.currentTime; osc('sine', 150, 40, t, 0.9, 0.9, SFX, 0.003); nz(t, 0.5, 0.3, 'bandpass', 600, 0.5, SFX); [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => bell(mtof(m), t + 0.05 + i * 0.055, 0.12, SFX)); },
+    chirp() { if (!AC || S.muted) return; const f = R2(820, 1100); osc('sine', f, f * 1.6, AC.currentTime, 0.16, 0.12, SFX); },
+    babble(text) { if (!AC || S.muted) return; const n = Math.min(9, Math.max(2, Math.round(text.length / 3))), t = AC.currentTime; for (let j = 0; j < n; j++) { const f = R2(620, 1050); osc('sine', f, f * R2(0.85, 1.25), t + j * 0.072, 0.06, 0.07, SFX, 0.005); } },
+    boing() { if (!AC || S.muted) return; const t0 = AC.currentTime; const o = AC.createOscillator(), g = AC.createGain(), l = AC.createOscillator(), lg = AC.createGain(); o.frequency.setValueAtTime(180, t0); o.frequency.exponentialRampToValueAtTime(700, t0 + 0.6); l.frequency.value = 22; lg.gain.setValueAtTime(120, t0); lg.gain.exponentialRampToValueAtTime(1, t0 + 0.7); l.connect(lg); lg.connect(o.frequency); g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.35, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.72); o.connect(g); g.connect(SFX); o.start(t0); l.start(t0); o.stop(t0 + 0.8); l.stop(t0 + 0.8); },
+    drop() { if (!AC || S.muted) return; const t = AC.currentTime; osc('sine', 1500, 420, t, 0.5, 0.1, SFX); osc('sine', 110, 45, t + 0.5, 1.2, 0.8, SFX, 0.003); nz(t + 0.5, 1.0, 0.18, 'highpass', 5000, 0.4, SFX); },
+    click() { if (!AC || S.muted) return; osc('triangle', 1400, 1100, AC.currentTime, 0.05, 0.07, SFX); },
+    whoosh() { if (!AC || S.muted) return; const t = AC.currentTime; nz(t, 0.6, 0.12, 'bandpass', 800, 0.6, SFX); bell(mtof(84), t + 0.1, 0.06, SFX); },
   };
 
   // ---------------- UI ----------------
@@ -187,10 +245,11 @@
     ui.pets.textContent = S.phase === 'egg' ? `${S.eggPets} / ${HATCH}` : `${S.greggPets}`;
     ui.dots.forEach((d, i) => d.classList.toggle('on', S.phase !== 'egg' || S.eggPets >= (i + 1) * 6));
     document.body.classList.toggle('hatched', S.phase !== 'egg');
-    ui.sound.classList.toggle('off', S.muted);
+    ui.sound.classList.toggle('off', S.muted); const mb = $('#music'); if (mb) mb.classList.toggle('off', !!S.musicOff);
   }
   document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { audioOn(); setMode(b.dataset.mode); }));
-  if (ui.sound) ui.sound.addEventListener('click', () => { audioOn(); S.muted = !S.muted; if (MG) MG.gain.value = S.muted ? 0 : 0.7; updateUI(); save(); });
+  if (ui.sound) ui.sound.addEventListener('click', () => { audioOn(); S.muted = !S.muted; if (MG) MG.gain.setTargetAtTime(S.muted ? 0 : 0.9, AC.currentTime, 0.05); updateUI(); save(); });
+  const musicBtn = $('#music'); if (musicBtn) musicBtn.addEventListener('click', () => { audioOn(); S.musicOff = !S.musicOff; if (MUS) MUS.gain.setTargetAtTime(S.musicOff ? 0 : 0.6, AC.currentTime, 0.15); updateUI(); save(); });
   if (ui.egg) ui.egg.addEventListener('click', () => { audioOn(); newEgg(); });
 
   // ---------------- drawing ----------------
@@ -382,6 +441,7 @@
     if (S.phase === 'gregg' && !idleSaid && S.t - lastPet > 9 && !REC && !SHOT) { idleSaid = true; say(pick(['psst… pet me?', 'hello? i can see your cursor', 'i\'m right here btw'])); }
     if (S.phase === 'egg' && S.eggPets === 0 && !idleSaid && S.t > 6 && !REC && !SHOT) { idleSaid = true; say('…pet me?'); }
     bubbleT -= dt; if (bubbleEl && bubbleT <= 0 && bubbleEl.classList.contains('show')) bubbleEl.classList.remove('show');
+    rustle *= Math.exp(-dt * 7); audioFrame(dt);
     hand.press = lerp(hand.press, hand.down ? 1 : 0, 1 - Math.exp(-dt * 14));
     hand.ang = lerp(hand.ang, clamp(hand.vx * 0.6, -18, 18), 1 - Math.exp(-dt * 10)); hand.vx *= Math.exp(-dt * 8);
   }
@@ -417,7 +477,7 @@
   function pickLine(arr) { let l; do { l = pick(arr); } while (l === lastLine && arr.length > 1); return l; }
   function say(text, dur = 1.6, force = false) {
     if (!bubbleEl || SHOT) return; if (!force && bubbleT > 0.4) return;
-    lastLine = text; bubbleT = dur; bubbleEl.textContent = text; log('say', { text });
+    lastLine = text; bubbleT = dur; bubbleEl.textContent = text; log('say', { text }); sfx.babble(text);
     bubbleEl.classList.remove('show'); void bubbleEl.offsetWidth; bubbleEl.classList.add('show');
   }
   function placeBubble() {
@@ -450,9 +510,19 @@
     shards.length = 0; confetti.length = 0; hearts.length = 0; sparks.length = 0;
     render(); return true;
   };
+  window.__audio = () => ({ state: AC ? AC.state : 'none', music: musicOn, steps: step });
   window.__rec = { glasses: () => { S.glasses = true; S.glassT = S.t; log('glasses'); say('deal with it', 2.4, true); }, move: (x, y, down) => onMove(x, y, down, false), step: tick, mode: setMode, newEgg, state: () => ({ phase: S.phase, eggPets: S.eggPets, greggPets: S.greggPets, t: S.t }), events: () => EV };
 
   layout(); updateUI();
+  const startEl = $('#start');
+  if (startEl) {
+    if (REC || SHOT) startEl.remove();
+    else {
+      if (S.phase === 'gregg') { const h2 = startEl.querySelector('p'); if (h2) h2.textContent = 'Welcome back. Gregg missed you.'; }
+      const go = () => { audioOn(); startEl.classList.add('gone'); setTimeout(() => startEl.remove(), 600); if (S.phase === 'gregg') setTimeout(() => say('you\'re back!!', 1.8, true), 500); };
+      startEl.addEventListener('click', go); window.addEventListener('keydown', function k(e) { if (e.key === 'Enter' || e.key === ' ') { window.removeEventListener('keydown', k); if (document.getElementById('start')) go(); } });
+    }
+  }
   if (SHOT) {
     // static compositions for avatars and banners
     if (SHOT !== 'avatar-egg') { S.phase = 'gregg'; S.hatchT = -99; }
