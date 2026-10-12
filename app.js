@@ -514,14 +514,13 @@
   window.__rec = { glasses: () => { S.glasses = true; S.glassT = S.t; log('glasses'); say('deal with it', 2.4, true); }, move: (x, y, down) => onMove(x, y, down, false), step: tick, mode: setMode, newEgg, state: () => ({ phase: S.phase, eggPets: S.eggPets, greggPets: S.greggPets, t: S.t }), events: () => EV };
 
   layout(); updateUI();
-  const startEl = $('#start');
-  if (startEl) {
-    if (REC || SHOT) startEl.remove();
-    else {
-      if (S.phase === 'gregg') { const h2 = startEl.querySelector('p'); if (h2) h2.textContent = 'Welcome back. Gregg missed you.'; }
-      const go = () => { audioOn(); startEl.classList.add('gone'); setTimeout(() => startEl.remove(), 600); if (S.phase === 'gregg') setTimeout(() => say('you\'re back!!', 1.8, true), 500); };
-      startEl.addEventListener('click', go); window.addEventListener('keydown', function k(e) { if (e.key === 'Enter' || e.key === ' ') { window.removeEventListener('keydown', k); if (document.getElementById('start')) go(); } });
-    }
+  if (!REC && !SHOT) {
+    // Browsers only allow sound after the first click, tap or key press. Try right away, then unlock on the first gesture.
+    const EVS = ['pointerdown', 'pointerup', 'click', 'touchend', 'keydown'];
+    const unlock = () => { audioOn(); if (AC && AC.state === 'running') EVS.forEach(ev => window.removeEventListener(ev, unlock, true)); };
+    EVS.forEach(ev => window.addEventListener(ev, unlock, true));
+    audioOn();
+    if (S.phase === 'gregg') setTimeout(() => say('you\'re back!!', 1.8, true), 900);
   }
   if (SHOT) {
     // static compositions for avatars and banners
